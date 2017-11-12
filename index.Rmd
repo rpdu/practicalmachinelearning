@@ -1,30 +1,143 @@
 ---
-title: "Practical Machine Learning Course Project"
-author: "pduchesne"
-date: "29 October 2017"
-output: html_document
+title: "Practical Machine Learning Course"
+subtitle: 'Peer-graded Assignment: Course Project'
+author: "P. Duchesne"
+date: "12 November 2017"
+output: 
+  html_document: 
+    keep_md: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+####Executive Summary
+This project report will use data sets to predict the manner in which 6 participants, as part of a Human Activity Recognition experiment, did specific barbell lift exercises. 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The source data is composed of the measurements of accelerometers located on the belt, forearm, arm, and dumbell of 6 participants. Each were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+The data for this project comes from the Human Activity Recognition - Weight Lifting Exercises Dataset (http://groupware.les.inf.puc-rio.br/har) made available by
 
-```{r cars}
-summary(cars)
+*Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.*
+
+####Exploratory Data Analysis
+
+The data is split over two data sets, a traing and testing set. 
+
+The training set contains 19622 observations over 160 variables.  The "classe" variable in the training set is the outcome. This will be the variable to predict using the testing data set. 
+The testing data set itself contains 20 observations over 160 variables. 
+
+Both these sets were downloaded and placed in data frames for exploration after loading the required libraries. 
+
+####Filtering Predictors
+
+Initial observations show that many of the column variables contained large quantities of NA or blank values. If these columns had a high proportion of such values (over 97%), then I removed the column from the training set to be used to fit the model. These would bear little impact on the model as they were almost completly empty, see **Fig. 1**.
+
+```{r libs&load, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+# We begin by loading curl, plyr, caret, parallel, doParallel, randomForest, foreach libraries in memory.
+library(curl);
+library(plyr);
+library(tidyselect);
+library(caret);
+
+library(randomForest);
+library(foreach);
+library(knitr);
+library(kableExtra);
+set.seed(290695)
+
+if(!file.exists("./data")){dir.create("./data")}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl,destfile="./data/pml-training.csv")
+pmltrainingraw <- read.csv("./data/pml-training.csv",na.strings=c("",".","NA"))
+
+if(!file.exists("./data")){dir.create("./data")}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl,destfile="./data/pml-testing.csv")
+pmltestingraw <- read.csv("./data/pml-testing.csv", na.strings=c("",".","NA"))
+```
+###### **Fig. 1**
+```{r head, echo=FALSE, fig.height=2.5, message=FALSE, warning=FALSE, results='asis'}
+tb_head<-head(pmltrainingraw)
+kable(tb_head)
+library(parallel);
+library(doParallel);
 ```
 
-## Including Plots
+Further subsetting was implemented during the load and included the elimination of columns with no motion related data (the first seven variables). 
 
-You can also embed plots, for example:
+```{r loadDFs, echo=FALSE}
+pmltraining<-data.frame(matrix(nrow=19622, ncol=1))
+pmltesting<-data.frame(matrix(nrow=20, ncol=1))
+ll <- length(pmltrainingraw[])
+tmp <- vector(mode = "list", length = ll)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+for (index in 8:ll) {
+        #start at 8 to skip the first 7 rows
+        tmp[[index]] <- max(count(pmltrainingraw, names(pmltrainingraw)[index])$freq)
+        #will filter out columns of negligible value when building both DFs
+        if (tmp[[index]] != 19216) { 
+        pmltraining<-cbind(pmltrainingraw[index],pmltraining)
+        pmltesting<-cbind(pmltestingraw[index],pmltesting)
+                }
+}
+pmltraining<-pmltraining[-54]#lose df initiator column
+pmltesting<-pmltesting[-54]#lose df initiator column
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Building the Model 
+
+After having completed the preparation of the large number potential variables being fitted down from 160 variables to 53 more probable variables, the next step was to fit a model. 
+
+Using the caret package, the Random Forest (rf) method was recommended because of its accuracy as one of the top performing algorithms. It is also recommended to tune the model using the  cross-validation method for the traincontrol, in order to control the overfitting that can result from the rf method. 
+Parallel processing was used to reduce the amount of time taken by running this technique.
+
+
+```{r makecluster, message=FALSE, warning=FALSE, include=FALSE}
+#Configure parallel processing
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+#Train the model using Cross-validation method with 5 folds
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           allowParallel = TRUE)
+#Fit training model
+fitModel <- train(classe ~., method="rf",data=pmltraining,trControl = fitControl)
+
+#Unregister the parallel processing
+stopCluster(cluster)
+registerDoSEQ()
+
+```
+
+Our model is fit with over a 99 % accuracy rate using mtry=27 as tuning parameter, see **Fig. 2**. The accuracy obtained was high enough to continue with this model.
+
+###### **Fig. 2**
+```{r fitModel, echo=FALSE}
+fitModel
+```
+
+We can observe these graphically in **Fig. 3**.
+
+###### **Fig. 3**
+
+```{r resample, echo=FALSE}
+resampleHist(fitModel)
+```
+
+We then apply the confusion matrix to allow us to visualize the classe distribution and related errors. As for the question of our expected out of sample error, the oob error rate is 0.43%. We consider this low enough to confirm our model selection, see **Fig. 4**. 
+
+###### **Fig. 4**
+
+```{r confusionM, echo=FALSE}
+print(fitModel$finalModel)
+```
+
+####Conclusion
+
+The resulting accuracy and low OOB error rate obtained by training our model lead us to conlude that our model will be able to accurately predict the classe of exercise performed as part of the test data set. Thank you.
