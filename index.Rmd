@@ -61,8 +61,7 @@ pmltestingraw <- read.csv("./data/pml-testing.csv", na.strings=c("",".","NA"))
 ```{r head, echo=FALSE, fig.height=2.5, message=FALSE, warning=FALSE, results='asis'}
 tb_head<-head(pmltrainingraw)
 kable(tb_head)
-library(parallel);
-library(doParallel);
+
 ```
 
 Further subsetting was implemented during the load and included the elimination of columns with no motion related data (the first seven variables). 
